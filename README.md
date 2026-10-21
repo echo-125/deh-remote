@@ -1,9 +1,9 @@
-# dsh-remote-web-ui · LAN-only Remote Web Control for DeepSeek Harness (DSH)
+# @echo-125/deh-remote · LAN-only Remote Web Control for DeepSeek Harness (DSH)
 
 English | [中文](README.zh.md)
 
 <p align="center">
-  <img src="https://img.shields.io/npm/v/@linxin666/dsh-remote-web-ui?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/npm/v/@echo-125/deh-remote?style=flat-square" alt="Version">
   &nbsp;
   <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
@@ -27,7 +27,7 @@ This package is an official external plugin for DeepSeek Harness (DSH), structur
 - **PC side**: the same link opens the full desktop Web GUI on another computer over the gated `/remote` channel; unpaired PCs see a guided blocking page (with a manual pair-token input) and no workspace data behind it.
 - **Security**: one active token at a time (a refresh invalidates the old link; the link stays re-usable within its expiry window so a scan handed between browsers can complete pairing; it expires). 停止 revokes every paired device and the current token — the `/remote` channel cuts them off on their next request. Pairing is this plugin's access control for the `/remote` channel; the web server keeps its loopback bind, so a LAN browser reaches the app through this plugin's gated `/remote` gateway (the client moves its transport there) rather than the native `/api`, which the harness Host fence answers with 403 for a LAN authority (see Security model). Loopback (127.0.0.1) keeps using `/api` directly, and so does a page an application on this machine delivered — the desktop shell's `dsh-app://app/` or a `file:` page — because a pairing link is reachable only over the network. A paired device is a **full-control credential** (see Security model).
 - **LAN access toggle (runtime forwarder)**: the settings card starts a forwarder instead of touching any file. The web server keeps its loopback bind, and the forwarder listens on this machine's first LAN IPv4 address at the same port, re-issuing every request — HTTP and WebSocket upgrades alike — to `127.0.0.1:<port>`. `--host`/`--port` keep their ordinary meaning, so an explicit `dsh web --host <a LAN address>` still works and the forwarder then yields the port. The toggle applies while the process runs: no restart, no profile edit. When this machine has no LAN IPv4 address the forwarder stays off and the card says so; `198.18.x`-style fake-IP/TUN addresses and other unreachable ranges or adapters are excluded from the candidate list. It maintains the matching host firewall rule (Windows Defender via netsh; Linux firewalld/ufw/iptables; other platforms report the firewall as unmanaged) and shows the live bind, the reachable LAN URLs, the forwarder state (`forward { listening, host, port, reason, error }`) beside the host's own `localBindHost`, and the firewall state. The port follows the web server's own port, so a desktop restart can change it; after a network change, flip the toggle off and on again.
-- **Settings card**: the card registers into the official keyed slot `plugins.bundle.config`, keyed by the exact bundle package name `@linxin666/dsh-remote-web-ui`, on Settings → Plugins → that plugin's page; it also registers into the family list seat `web-ui.plugin.item` when the family group `dsh-web-settings` is loaded (the aggregate install), and moves between the two seats if the group applies later. Registration waits for the slot's declaration (`slots.inject`) instead of firing a bare register that would throw on an undeclared seat. The form edits `enabled`, `lanBind`, `requirePairingForLan`, `maxDevices`, `tokenTtlMs`, `idleExpireMs`, `offlineAfterMs` and `cookieName`; `profile` and `devicesFile` stay patch-only, so the card offers no control a live write could not honor.
+- **Settings card**: the card registers into the official keyed slot `plugins.bundle.config`, keyed by the exact bundle package name `@echo-125/deh-remote`, on Settings → Plugins → that plugin's page; it also registers into the family list seat `web-ui.plugin.item` when the family group `dsh-web-settings` is loaded (the aggregate install), and moves between the two seats if the group applies later. Registration waits for the slot's declaration (`slots.inject`) instead of firing a bare register that would throw on an undeclared seat. The form edits `enabled`, `lanBind`, `requirePairingForLan`, `maxDevices`, `tokenTtlMs`, `idleExpireMs`, `offlineAfterMs` and `cookieName`; `profile` and `devicesFile` stay patch-only, so the card offers no control a live write could not honor.
 - **Live status**: the desktop badge flips to 已连接 in real time; the device roster, 停止 and 刷新二维码 mirror the pairing service over the loopback status stream.
 - **Remote control only**: the one-click family update is its own plugin (`dsh-update`, the same sidebar foot seat), so turning remote access off — or disabling this plugin — never removes the update trigger. The paired-device channel refuses the self-update installer (`/api/update`) and plugin install/manage (`/api/plugin-manager`): both belong to other packages, stay on the plain loopback path, and are not part of remote control.
 - **Desktop foot row**: on the wide sidebar the footer-action occupants share the official Settings trigger's line instead of stacking above it, so no single control owns a full-width row; any other foot block (the usage glance card, another plugin's) keeps a full row above them, and the 56px rail keeps the shell's stacked foot.
@@ -53,22 +53,21 @@ The paired remote desktop also runs in **host mode**: on this harness line the "
 
 ## Install
 
-Install the family aggregate package `@linxin666/dsh-web-all` (all plugins and skins in one) or this plugin alone:
+This plugin is a standalone bundle. Install it alone:
 
 ```sh
-# Recommended: install directly from npm
-dsh plugin --profile web add @linxin666/dsh-remote-web-ui@latest
+# From npm (once published)
+dsh plugin --profile web add @echo-125/deh-remote@latest
 
-# Or from the repository (development loop)
-git clone https://github.com/zhu1090093659/dsh-web.git
-cd dsh-web
-pnpm install && pnpm -r build
-dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-web-ui
+# Or from this checkout (development loop)
+dsh plugin --profile web add link:$(pwd)
 ```
 
 Restart the profile (`dsh web`), then open the phone icon in the sidebar foot. The plugin's `cordis.patch.yml` inserts the single plugin row that mounts both halves.
 
-> `github:<org>/<repo>` installs work for a standalone repo whose package sits at the root (the `prepare` script builds `lib/` during install; pnpm ≥10 blocks that until you copy the printed key into the profile's `pnpm-workspace.yaml` `allowBuilds` and re-run). Monorepo subpackages use the `link:` form above.
+> `github:<org>/<repo>` installs work because the package sits at this repo's root (the `prepare` script builds `lib/` during install; pnpm ≥10 blocks that until you copy the printed key into the profile's `pnpm-workspace.yaml` `allowBuilds` and re-run).
+>
+> The bundle must also be listed in the profile's `dsh.profile.bundles`. A dependency alone is not enough: the plugin-manager composes the bundle's patch only for bundles that list declares, and without it the plugin never loads at all (its routes answer 404 and no settings surface appears).
 
 ## Use
 
@@ -84,12 +83,12 @@ Restart the profile (`dsh web`), then open the phone icon in the sidebar foot. T
 Work from this repository (no sibling checkout needed):
 
 ```sh
-cd dsh-web
+cd deh-remote
 export NPM_TOKEN='<token>'   # only if private @deepseek-ai auth is still required
 pnpm install
-pnpm --filter @linxin666/dsh-remote-web-ui run build
-pnpm --filter @linxin666/dsh-remote-web-ui test
-pnpm --filter @linxin666/dsh-remote-web-ui run typecheck
+pnpm run build
+pnpm test
+pnpm run typecheck
 ```
 
 The peer APIs come from the official NPM SDK: every `@deepseek-ai/*` package used here is declared in devDependencies (0.2.1-rc.2 cohort), and TypeScript/Vitest resolve types straight from node_modules — no DSH source checkout is required. The consumer-side `prepare` build (`tsdown.prepare.config.ts`) transpiles without type checking, so git installs work without any harness checkout either.

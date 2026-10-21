@@ -1,4 +1,4 @@
-# dsh-remote-web-ui — 仓库规则
+# @echo-125/deh-remote — 仓库规则
 
 本仓库是 DeepSeek Harness 的外部插件包，开发只能基于官方 NPM SDK
 （`@deepseek-ai/*` devDependencies，类型从 node_modules 解析，不引用任何
@@ -17,8 +17,9 @@ DSH 源码 checkout）。锚定 0.2.1-rc.2 cohort。
 - 本包永不改写宿主 webserver 行的绑定：服务保持回环绑定，局域网可达性由运行时
   转发器 `src/lan-forward.ts` 提供——监听本机局域网 IPv4、端口跟随 webserver 实际
   端口，把请求（含 WebSocket upgrade）转发到 `127.0.0.1:同端口`；转发器丢弃客户端
-  自带的 Host 与全部转发头，再盖上局域网权威与 `X-Forwarded-For`，因此经转发器的
-  请求永不被判为桌面。绑定失败只丢局域网入口、回环不受影响、状态帧报 error。
+  自带的 Host 与全部转发头（含 RFC 7239 `Forwarded`），再盖上局域网权威与
+  `X-Forwarded-For`，因此经转发器的请求永不被判为桌面。绑定失败只丢局域网入口、
+  回环不受影响、状态帧报 error。
   旧版受管块只在激活时清理一次（幂等、原子替换、失败明确报错），不得重新引入
   写回路径。
 - 两层回环判定是安全边界：`isLoopbackUpstream`（socket + Host 回环、忽略转发头）
@@ -27,3 +28,19 @@ DSH 源码 checkout）。锚定 0.2.1-rc.2 cohort。
   改动时同样要求 README 双语与本包测试一起移动。
 - 官方界面移动适配层（`src/client/mobile-adapt.ts`）的选择器以 CSS Modules
   语义后缀为键；官方 GUI 升级后必须做一轮真实 GUI 视觉 QA 再合入。
+- **静默是硬约束**：本包不向宿主控制台打印任何日志（typecheck 门禁会看到
+  `console.*` 归零）。失败一律经状态帧、返回值或 HTTP 状态码上报。
+  局域网转发器失败看 `lanBindFrameOf().forward.error`，防火墙失败看
+  `firewall` 摘要，配对持久化失败看 `sweep()` 的返回值。
+- **主开关默认关闭**：`Config.enabled` 默认 `false`，且它同时门住侧边栏入口、
+  配对路由与局域网转发器。设置侧栏的「远程访问」一级入口（`settings-section.ts`）
+  与插件详情页卡片都不受 `enabled` 影响，否则关掉后将无处开启。
+- 包身份：npm 包名 `@echo-125/deh-remote`，cordis 行 id `deh-remote`，
+  设置命名空间 `deh-remote`。改任一身份都要同步 `cordis.patch.yml`、
+  `mountOnce()` 键、卡片 `bundle` key（官方 `plugins.bundle.config` 座位按包名
+  派发，不一致卡片会消失）与 `data-dsh-plugin` 语义属性。
+- 独立仓构建：`build/tsdown.client.ts` + `build/web-platform.ts` 是从 dsh-web
+  单仓内联的构建预设（原 `shared/`），`tsdown*.config.ts` 引用本地副本。
+  `pnpm-workspace.yaml` 的 `packageExtensions` 修补上游 SDK 未声明依赖的缺陷，
+  删掉它测试会因 `zustand`/`shiki` 等解析失败而红。
+

@@ -1,9 +1,9 @@
-# dsh-remote-web-ui · DeepSeek Harness (DSH) 局域网远程控制插件
+# @echo-125/deh-remote · DeepSeek Harness (DSH) 局域网远程控制插件
 
 [English](README.md) | 中文
 
 <p align="center">
-  <img src="https://img.shields.io/npm/v/@linxin666/dsh-remote-web-ui?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/npm/v/@echo-125/deh-remote?style=flat-square" alt="Version">
   &nbsp;
   <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
@@ -27,7 +27,7 @@
 - **电脑侧**：同一链接在另一台电脑的浏览器里打开完整桌面 Web GUI，流量走门控 `/remote` 通道；未配对的电脑看到引导式拦截页（含手动粘贴配对令牌输入框），其后没有任何工作区数据。
 - **安全**：同时只有一枚有效令牌（刷新二维码使旧链接失效；链接在其有效期窗口内可重复配对——扫码在浏览器间转手也能完成配对；令牌会过期）。停止会撤销所有配对设备与当前令牌——`/remote` 通道在下一次请求即切断它们。配对是本插件对 `/remote` 通道的访问控制；web server 自身保持回环绑定，因此局域网浏览器经本插件门控的 `/remote` 网关进入应用（客户端把传输改写到那里），而不是走原生 `/api`——对局域网权威，harness 的 Host 围栏会返回 403（见安全模型）。回环（127.0.0.1）继续直接使用 `/api`；本机应用交付的页面（桌面外壳的 `dsh-app://app/`、`file:` 页面）同样如此——配对链接只能经网络到达。配对设备是**完全控制凭据**（见安全模型）。
 - **局域网访问开关（运行时转发器）**：设置卡片启动一个转发器，不改写任何文件。web server 保持回环绑定，转发器在本机第一个局域网 IPv4 地址、同一端口上监听，把每个请求——HTTP 与 WebSocket upgrade 一视同仁——转发到 `127.0.0.1:<端口>`。`--host`/`--port` 恢复常规语义：显式 `dsh web --host <局域网地址>` 照旧可用，此时转发器让出该端口。开关在进程运行期间即时生效：无需重启，也不写 profile。本机没有局域网 IPv4 地址时转发器保持关闭，卡片会如实说明；`198.18.x` 这类 fake-IP/TUN 地址以及其他不可达网段与网卡不会进入候选列表。同时维护对应的主机防火墙规则（Windows Defender 经 netsh；Linux firewalld/ufw/iptables；其他平台报告防火墙不受管），并展示运行中的绑定、可达局域网地址、与宿主自身 `localBindHost` 并列的转发器状态（`forward { listening, host, port, reason, error }`）以及防火墙状态。端口跟随 web server 自身的端口，因此桌面端重启可能改变它；网络变化后把开关关一次再打开即可。
-- **设置卡片**：卡片注册进官方 keyed 槽 `plugins.bundle.config`，key 为确切的 bundle 包名 `@linxin666/dsh-remote-web-ui`，落在 设置 → 插件 → 该插件页；当家族分组 `dsh-web-settings` 已加载（全家桶安装）时，它同时注册进家族 list 席位 `web-ui.plugin.item`，若该分组后加载则会在两个席位之间迁移。注册等待槽位声明（`slots.inject`），不再发出会在未声明席位上抛错的裸 register。表单编辑 `enabled`、`lanBind`、`requirePairingForLan`、`maxDevices`、`tokenTtlMs`、`idleExpireMs`、`offlineAfterMs` 与 `cookieName`；`profile` 与 `devicesFile` 保持仅补丁可见，卡片不会提供实时写入无法兑现的控件。
+- **设置卡片**：卡片注册进官方 keyed 槽 `plugins.bundle.config`，key 为确切的 bundle 包名 `@echo-125/deh-remote`，落在 设置 → 插件 → 该插件页；当家族分组 `dsh-web-settings` 已加载（全家桶安装）时，它同时注册进家族 list 席位 `web-ui.plugin.item`，若该分组后加载则会在两个席位之间迁移。注册等待槽位声明（`slots.inject`），不再发出会在未声明席位上抛错的裸 register。表单编辑 `enabled`、`lanBind`、`requirePairingForLan`、`maxDevices`、`tokenTtlMs`、`idleExpireMs`、`offlineAfterMs` 与 `cookieName`；`profile` 与 `devicesFile` 保持仅补丁可见，卡片不会提供实时写入无法兑现的控件。
 - **实时状态**：桌面徽标实时切换为已连接；设备名单、停止与刷新二维码经回环状态流镜像配对服务。
 - **只做远程控制**：一键家族更新是独立插件（`dsh-update`，同一个侧栏脚部席位），因此关闭远程访问、甚至禁用本插件，都不会把更新入口一起带走。配对设备通道拒绝自更新安装器（`/api/update`）与插件安装/管理（`/api/plugin-manager`）：两者属于其他包，留在普通回环路径上，不属于远程控制。
 - **桌面端底栏一行**：宽栏下脚部动作占用者不再各自成行，而是与官方「设置」触发器共用一行，设置按钮不再独占整行；其他脚部块（用量速览卡、其它插件的块）仍各占一整行，56px 栏轨保持官方原有的堆叠脚部。
@@ -53,18 +53,26 @@
 
 ## 安装
 
-安装全家桶聚合包 `@linxin666/dsh-web-all`（全部插件与皮肤）或单独安装本插件：
+本插件是独立 bundle，单独安装即可：
 
 ```sh
-# 推荐：直接从 npm 安装
-dsh plugin --profile web add @linxin666/dsh-remote-web-ui@latest
+# 推荐：直接从 npm 安装（发布后）
+dsh plugin --profile web add @echo-125/deh-remote@latest
 
-# 或从仓库（开发循环）
-git clone https://github.com/zhu1090093659/dsh-web.git
-cd dsh-web
-pnpm install && pnpm -r build
-dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-web-ui
+# 或从本检出（开发循环）
+dsh plugin --profile web add link:$(pwd)
 ```
+
+重启 profile（`dsh web`），然后点开侧边栏页脚的电话图标。插件的
+`cordis.patch.yml` 会插入唯一的插件行，同时挂载 host 与浏览器两个半区。
+
+> `github:<org>/<repo>` 安装可用，因为包就在本仓根目录（`prepare` 脚本在安装
+> 期间构建 `lib/`；pnpm ≥10 会拦下，直到你把打印出来的 key 复制进 profile 的
+> `pnpm-workspace.yaml` `allowBuilds` 再重跑）。
+>
+> bundle 还必须列进 profile 的 `dsh.profile.bundles`。只写 `dependencies` 不够：
+> 插件管理器只对它声明过的 bundle 合成 bundle patch，没列进去插件根本不加载
+> （路由返回 404，设置面也不出现）。
 
 重启 profile（`dsh web`），然后打开侧栏底部的手机图标。插件的 `cordis.patch.yml` 插入单一插件行，同时挂载两个半区。
 
@@ -84,12 +92,12 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-web-ui
 在本仓库内工作（无需 DSH 源码 checkout）：
 
 ```sh
-cd dsh-web
+cd deh-remote
 export NPM_TOKEN='<token>'   # 仅当仍需私有 @deepseek-ai 认证时
 pnpm install
-pnpm --filter @linxin666/dsh-remote-web-ui run build
-pnpm --filter @linxin666/dsh-remote-web-ui test
-pnpm --filter @linxin666/dsh-remote-web-ui run typecheck
+pnpm run build
+pnpm test
+pnpm run typecheck
 ```
 
 对端 API 来自官方 NPM SDK：用到的每个 `@deepseek-ai/*` 包都声明在 devDependencies（0.2.1-rc.2 cohort）中，TypeScript/Vitest 直接从 node_modules 解析类型——不需要 DSH 源码 checkout。消费侧 `prepare` 构建（`tsdown.prepare.config.ts`）不做类型检查地转译，git 安装同样无需 harness checkout。
