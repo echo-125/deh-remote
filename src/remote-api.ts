@@ -34,6 +34,7 @@ import { readCookie } from './gate.ts'
 import { writeJson } from './http.ts'
 import type { InnerAuth } from './inner-auth.ts'
 import { proxyLoopbackHttp, proxyLoopbackUpgrade } from './loopback-proxy.ts'
+import { appendChannelLog } from './channel-log.ts'
 import {
   REMOTE_DEVICE_HEADER,
   REMOTE_DEVICE_QUERY,
@@ -242,7 +243,25 @@ export function makeRemoteApiUpgradeRoutes(deps: RemoteApiDeps): WebUpgradeRoute
     } catch { /* fall through to the cookie */ }
     const deviceId = pairedDeviceIdOf(req, service)
     const paired = deviceId ?? (queryDevice !== undefined && service.touchDevice(queryDevice) ? queryDevice : undefined)
+    // Host-side trace of this leg (diagnostics): the gateway is the only place
+    // that sees the attempt and its verdict, and a phone has no DevTools to
+    // look at the browser half with.
+    const legPath = (req.url ?? '').split('?')[0] ?? ''
+    let innerStatus: number | undefined
+    const trace = (outcome: string, status: number, heldMs?: number, code?: number): void => {
+      appendChannelLog({
+        at: Date.now(),
+        path: legPath,
+        credentialed: paired !== undefined,
+        outcome,
+        status,
+        ...(innerStatus === undefined ? {} : { innerStatus }),
+        ...(heldMs === undefined ? {} : { heldMs }),
+        ...(code === undefined ? {} : { code }),
+      })
+    }
     if (paired === undefined) {
+      trace('unpaired', 403)
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
@@ -250,6 +269,7 @@ export function makeRemoteApiUpgradeRoutes(deps: RemoteApiDeps): WebUpgradeRoute
     const port = deps.port()
     if (port === undefined) {
       // Same unbound-port refusal as the HTTP leg: no :undefined handshake.
+      trace('port-unbound', 503)
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
@@ -257,10 +277,19 @@ export function makeRemoteApiUpgradeRoutes(deps: RemoteApiDeps): WebUpgradeRoute
     const inner = upgradeInnerPath(req.url, fallbackPath)
     const denied = loopbackOnlyDenial(inner.split('?')[0] ?? inner)
     if (denied !== undefined) {
+      trace('denied', 403)
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
     }
+    // The accepted leg is recorded when it ends, so the trace carries the
+    // survival time - the signal that separates "refused" from "opened and
+    // then torn down".
+    const openedAt = Date.now()
+    socket.on('close', () => {
+      const code = (socket as unknown as { _httpCode?: number })._httpCode
+      trace('accepted', 101, Date.now() - openedAt, typeof code === 'number' ? code : undefined)
+    })
     // The inner handshake needs the browser-auth credential (the gateway
     // event-stream route enforces it); resolving it is async, so the
     // handshake bytes are written once it settles. A missing credential
@@ -269,7 +298,21 @@ export function makeRemoteApiUpgradeRoutes(deps: RemoteApiDeps): WebUpgradeRoute
       .catch(() => undefined)
       .then((cookie) => {
         if (socket.destroyed) return
-        proxyLoopbackUpgrade(req, socket, head, port, inner, typeof cookie === 'string' ? cookie : undefined)
+        proxyLoopbackUpgrade(
+          req,
+          socket,
+          head,
+          port,
+          inner,
+          typeof cookie === 'string' ? cookie : undefined,
+          (status) => {
+            innerStatus = status
+            // The inner leg refused: the outer leg is already being told the
+            // same answer, so record the verdict now rather than at close
+            // (the socket may be gone by then).
+            if (status !== 101) trace('inner-refused', status)
+          },
+        )
       })
   }
 

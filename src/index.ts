@@ -42,6 +42,8 @@ import { withIdentityEncoding } from './http.ts'
 import { mountOnce } from './mount-once.ts'
 import { runDetached } from './detached-work.ts'
 import { REMOTE_CHANNEL_BOOT_SCRIPT } from './remote-channel-boot.ts'
+import { REMOTE_CHANNEL_RULES } from './remote-channel-rules.ts'
+import { buildDiagBootScript } from './client/diag-boot.ts'
 import { UUID_POLYFILL_SCRIPT } from './uuid-polyfill.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -831,6 +833,18 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     if (!value.enabled || !value.requirePairingForLan) return
     table.push({ kind: 'script', placement: 'head', text: REMOTE_CHANNEL_BOOT_SCRIPT })
   }), 'remote-web-ui: remote channel boot patch')
+
+  // The parse-time diagnostics probe. The official client opens its mux
+  // before any client plugin code runs, so a probe installed from the
+  // plugin's apply() misses exactly the leg that decides the outcome - the
+  // first one. It rides the same parse-time seat as the boot patch, and it
+  // is inert unless the landing carried the opt-in, so a normal paired phone
+  // pays nothing for it.
+  ctx.effect(() => ctx.on('webserver/index-inject', (table) => {
+    const value = resolve()
+    if (!value.enabled || !value.requirePairingForLan) return
+    table.push({ kind: 'script', placement: 'head', text: buildDiagBootScript(REMOTE_CHANNEL_RULES) })
+  }), 'remote-web-ui: remote channel diagnostics probe')
 
   // The settings write path. The Host commits the new values into this row's
   // volatile references and announces it here instead of remounting the row, so

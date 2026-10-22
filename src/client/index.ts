@@ -24,6 +24,9 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import { FooterRemoteEntry } from './FooterRemoteEntry.tsx'
 import { RemoteEntry } from './RemoteEntry.tsx'
 import { PairFailedNotice } from './PairFailedNotice.tsx'
+import { DiagPanel } from './DiagPanel.tsx'
+import { installDiagProbe, diagArmed, type RemoteDiagSnapshot } from './diag-probe.ts'
+import { installPageResumeRecovery } from './page-resume.ts'
 import { RemoteSettingsCard, RemoteSettingsCardController, type RemoteSettings } from './RemoteSettingsCard.tsx'
 import { en, zh, type RemoteKey } from './locales.ts'
 import { PAIR_FAILED_MARKER, runPairBootFlow } from './deep-link.ts'
@@ -335,6 +338,16 @@ export function apply(ctx: ClientContext): void {
     if (enabled() && disposeRuntime === undefined) {
       disposeRuntime = ctx.effect(() => {
         const connection = ctx.get('connection') as ConnectionHandle | undefined
+
+  // Page-resume recovery: a phone browser suspends a background tab and
+  // closes its WebSockets, and the official client only rediscovers the lost
+  // socket through its retry backoff - up to ten seconds of "Reconnecting",
+  // and a reconnect that starts while the page is still suspended fails the
+  // same way. Asking for a fresh attempt the moment the page comes back
+  // removes that gap (see page-resume.ts).
+  if (connection !== undefined && typeof connection.reconnect === 'function') {
+    ctx.effect(() => installPageResumeRecovery(window, connection), 'remote-web-ui: page resume recovery')
+  }
         const loopback = connection?.isLoopback ?? true
         runPairBootFlow(ctx, window.location.search)
         if (loopback) return () => {}
@@ -439,6 +452,37 @@ export function apply(ctx: ClientContext): void {
   }
   settingsForm.subscribe(syncChannel)
   syncChannel()
+
+
+  // Diagnostics overlay: opt-in only (see diag-probe.ts) and read-only, so a
+  // normal paired phone never mounts it. It samples the mux leg alone - the
+  // one the connection state machine waits on - which is the only way to tell
+  // "never rewrote" from "rewrote but refused" from "accepted then torn down".
+  let disposeDiag: (() => void) | undefined
+  if (diagArmed(window)) {
+    // The connection handle is read further down in apply(); resolve it
+    // lazily so the probe never depends on the read order.
+    const connectionOf = (): ConnectionHandle | undefined => ctx.get('connection') as ConnectionHandle | undefined
+    const probe = installDiagProbe(window, {
+      connectionState: () => connectionOf()?.state.getSnapshot(),
+      generationId: () => connectionOf()?.generation.getSnapshot()?.id,
+      interactions: () => connectionOf()?.interactions,
+      hasRpcOpen: () => connectionOf()?.rpc.open !== undefined,
+    })
+    disposeDiag = probe.dispose
+    const read = (): RemoteDiagSnapshot => probe.snapshot()
+    ;(window as unknown as Record<string, unknown>).__DSH_REMOTE_DIAG__ = read
+    const mount = document.createElement('div')
+    document.body.appendChild(mount)
+    const root = createRoot(mount)
+    root.render(createElement(DiagPanel, {
+      read,
+      onDismiss: () => {
+        root.unmount()
+        mount.remove()
+      },
+    }))
+  }
   const pageOrigin = pageOriginFacts(window)
   if (!isLocalPage(pageOrigin.hostname, pageOrigin.protocol, pageOrigin.transportOwnsHost) && settingsForm.getSnapshot().status !== 'ready') {
     void readPairGatePolicy().then((policy) => {

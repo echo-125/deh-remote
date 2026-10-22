@@ -27,6 +27,8 @@ import { UnknownLanAddressError, type PairingService, type PairingSnapshot } fro
 import { isLoopbackAddress, isProxiedRequest } from './loopback.ts'
 import { isLoopbackClient, isLoopbackUpstream, readCookie } from './gate.ts'
 import { readJsonBody, writeJson } from './http.ts'
+import { injectDiagBanner, renderDiagPage } from './diag-page.ts'
+import { readChannelLog } from './channel-log.ts'
 import { createPairGrantStore, type PairGrantStore } from './pair-grant.ts'
 import { REMOTE_HOST_GRANT_GLOBAL } from './remote-channel-rules.ts'
 import { appShellLanSwitchScript, type LanSourceHop } from './lan-source.ts'
@@ -290,12 +292,26 @@ const COOKIE_MAX_AGE_SEC = 365 * 24 * 60 * 60
  */
 export const APP_DEVICE_STORAGE_KEY = 'dsh-remote-device'
 
-export function appShellCaptureScript(deviceId: string): string {
+/**
+ * The session-storage key the diagnostic opt-in is remembered under. The
+ * landing rewrites the history to its own path on a plain-HTTP LAN, which
+ * drops the query the technician typed, so the flag has to outlive that.
+ */
+export const APP_DIAG_STORAGE_KEY = 'dsh-remote-diag'
+
+export function appShellCaptureScript(deviceId: string, diagFlag?: string): string {
   const safeId = JSON.stringify(deviceId)
   const grantGlobal = JSON.stringify(REMOTE_HOST_GRANT_GLOBAL)
   const reopenPath = JSON.stringify(PAIR_PATHS.appPage)
   const register = `try{if('serviceWorker' in navigator){navigator.serviceWorker.register(${JSON.stringify(PAIR_PATHS.appServiceWorker)},{scope:'/'}).catch(function(e){})}}catch(e){}`
-  return `<script>(function(){try{sessionStorage.setItem(${JSON.stringify(APP_DEVICE_STORAGE_KEY)},${safeId});}catch(e){}try{history.replaceState(null,'',window.isSecureContext?'/':${reopenPath})}catch(e){}try{window[${grantGlobal}]=true}catch(e){}${register}})()</script>`
+  // The diagnostic opt-in has to survive the history rewrite below: on a
+  // plain-HTTP LAN the landing keeps its own path, which drops the query the
+  // technician typed, so the flag is remembered in the session storage the
+  // client probe reads.
+  const persistDiag = diagFlag === undefined
+    ? ''
+    : `try{sessionStorage.setItem(${JSON.stringify(APP_DIAG_STORAGE_KEY)},${JSON.stringify(diagFlag)})}catch(e){}`
+  return `<script>(function(){try{sessionStorage.setItem(${JSON.stringify(APP_DEVICE_STORAGE_KEY)},${safeId});}catch(e){}${persistDiag}try{history.replaceState(null,'',window.isSecureContext?'/':${reopenPath})}catch(e){}try{window[${grantGlobal}]=true}catch(e){}${register}})()</script>`
 }
 
 /**
@@ -316,8 +332,8 @@ export function appShellCaptureScript(deviceId: string): string {
  * @param hop - the LAN candidates to probe, when a switch is possible.
  * @returns the patched document.
  */
-export function patchAppShell(html: string, deviceId: string, hop?: LanSourceHop): string {
-  const script = appShellCaptureScript(deviceId) + (hop === undefined ? '' : appShellLanSwitchScript(hop))
+export function patchAppShell(html: string, deviceId: string, hop?: LanSourceHop, diagFlag?: string): string {
+  const script = appShellCaptureScript(deviceId, diagFlag) + (hop === undefined ? '' : appShellLanSwitchScript(hop))
   const head = /<head[^>]*>/i.exec(html)
   if (head === null) return script + html
   const end = head.index + head[0].length
@@ -406,6 +422,21 @@ function refreshShell() {
  * device cookie, browser credential redeemed during its first scan) keeps
  * the old behavior and is sent on to the app.
  */
+/**
+ * The diagnostic opt-in flag, carried across the accept redirect so a phone
+ * that opened the QR link can keep it. The flag only decides whether the
+ * page shows diagnostics; it never widens access.
+ */
+function diagFlagOf(url: URL): string | undefined {
+  // A bare "?remoteDiag" (no value) is the natural way to type this on a
+  // phone, and it parses to an empty string - so presence, not truthiness,
+  // is the signal. An explicit "0"/"false" still means off.
+  if (!url.searchParams.has('remoteDiag')) return undefined
+  const raw = url.searchParams.get('remoteDiag') ?? ''
+  if (raw === '0' || raw === 'false') return undefined
+  return raw === '' ? '1' : raw
+}
+
 function pairingFailurePage(): string {
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
@@ -447,6 +478,11 @@ export const PAIR_PATHS = {
    * path so its default script-directory scope already covers `/`.
    */
   appServiceWorker: '/pair-app.sw.js',
+  /**
+   * The server-rendered diagnostics page: a phone has no DevTools, so the
+   * channel trace is rendered where the failing device can read it.
+   */
+  diag: '/pair-diag',
 } as const
 
 /**
@@ -972,7 +1008,13 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
         // An already-paired device re-opening a dead link goes straight to the
         // cookieless app landing, again on a fresh one-time grant.
         const { grant } = grants.issue(deviceId)
-        res.writeHead(303, { location: `${redirectOrigin(req)}/pair-app?grant=${encodeURIComponent(grant)}`, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' })
+        const diagFlag = diagFlagOf(new URL(req.url ?? '/', 'http://127.0.0.1'))
+        res.writeHead(303, {
+          location: `${redirectOrigin(req)}/pair-app?grant=${encodeURIComponent(grant)}${
+            diagFlag === undefined ? '' : `&remoteDiag=${encodeURIComponent(diagFlag)}`}`,
+          'cache-control': 'no-store',
+          'referrer-policy': 'no-referrer',
+        })
         res.end()
         return
       }
@@ -991,8 +1033,10 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     // browser-auth cookie hop: the channel gate accepts the device credential
     // whether or not the browser stores cookies.
     const { grant } = grants.issue(result.deviceId)
+    const diagFlag = diagFlagOf(new URL(req.url ?? '/', 'http://127.0.0.1'))
     res.writeHead(303, {
-      location: `${redirectOrigin(req)}/pair-app?grant=${encodeURIComponent(grant)}`,
+      location: `${redirectOrigin(req)}/pair-app?grant=${encodeURIComponent(grant)}${
+        diagFlag === undefined ? '' : `&remoteDiag=${encodeURIComponent(diagFlag)}`}`,
       'cache-control': 'no-store',
       'referrer-policy': 'no-referrer',
       'set-cookie': [deviceCookie(req, service.config.cookieName, result.deviceId)],
@@ -1048,7 +1092,12 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
       'referrer-policy': 'no-referrer',
       'set-cookie': [deviceCookie(req, service.config.cookieName, id)],
     })
-    res.end(patchAppShell(html, id, lanHop(req, id)))
+    // With the diagnostic opt-in the landing also carries a server-rendered
+    // trace: the phone that is failing is the only place that can read it,
+    // and it has no DevTools. The trace holds no credential.
+    const diagFlag = diagFlagOf(url)
+    const shell = patchAppShell(html, id, lanHop(req, id), diagFlag)
+    res.end(diagFlag === undefined ? shell : injectDiagBanner(shell, readChannelLog()))
   }
 
   /**
@@ -1097,6 +1146,42 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
    * update checks, which must not trip a brute-force budget. no-store keeps
    * the update check meaningful across deploys.
    */
+  /**
+   * The server-rendered diagnostics page. It exposes the channel trace to a
+   * paired device (or a loopback caller) so a phone can read it without
+   * DevTools. The trace carries no credential - only paths, gate outcomes,
+   * statuses and survival times - but it does describe the channel, so an
+   * unpaired caller is refused rather than shown it.
+   */
+  const handleDiagPage = (req: IncomingMessage, res: ServerResponse): void => {
+    if (!requireMethod(req, res, 'GET')) return
+    const cookieDevice = readCookie(req.headers.cookie, service.config.cookieName)
+    const paired = cookieDevice !== undefined && service.touchDevice(cookieDevice)
+    // A desktop browser that opens the LAN address is not a loopback client
+    // (the forwarder strips the loopback markers on purpose), so the desktop
+    // would be locked out of the very page it needs. The trace holds no
+    // credential - paths, gate outcomes, statuses and survival times - so a
+    // read from this machine's own address is safe to allow.
+    const localAddress = lanBaseUrls().some((base) => {
+      try {
+        return new URL(base).hostname === (req.headers.host ?? '').split(':')[0]
+      } catch {
+        return false
+      }
+    })
+    if (!paired && !isLoopbackClient(req) && !localAddress) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('forbidden')
+      return
+    }
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer',
+    })
+    res.end(renderDiagPage(readChannelLog()))
+  }
+
   const handleAppServiceWorker = (req: IncomingMessage, res: ServerResponse): void => {
     if (!requireMethod(req, res, 'GET')) return
     if (!lanFence(req, true)) {
@@ -1131,6 +1216,7 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
   // indexDocument still advertises LAN bases, and a landing served some other
   // way may still probe them.
   routes.push({ kind: 'exact', path: PAIR_PATHS.ping, handler: handlePing })
+  routes.push({ kind: 'exact', path: PAIR_PATHS.diag, handler: handleDiagPage })
   if (deps.indexDocument !== undefined) {
     routes.push({ kind: 'exact', path: PAIR_PATHS.appPage, handler: handleAppPage })
     // The reopen worker is only meaningful when the app landing it
