@@ -31,6 +31,7 @@
  */
 
 import { REMOTE_CHANNEL_BOOT_GLOBAL, REMOTE_CHANNEL_RULES, type RemoteChannelRules } from './remote-channel-rules.ts'
+import { BROWSER_POLYFILL_SCRIPT } from './browser-polyfills.ts'
 
 /**
  * Build the inline boot script. The result contains no `</script` sequence
@@ -43,6 +44,14 @@ export function buildRemoteChannelBootScript(rules: RemoteChannelRules = REMOTE_
   // Modern syntax is fine: module scripts already gate the GUI to current
   // browsers. Keep everything inside the IIFE and fail closed.
   return '(function(){' +
+    // The browser APIs the official client needs that an older WebKit lacks.
+    // The browser APIs the official client needs that an older WebKit lacks:
+    // AbortSignal.any and Promise.withResolvers both reached Safari in 17.4,
+    // and without them the client throws a TypeError inside its own
+    // generation - the transport is healthy while the UI sits in
+    // "Reconnecting" forever, or the session control stream fails and the
+    // workspace list stays empty.
+    BROWSER_POLYFILL_SCRIPT +
     'try{' +
     'var w=window,loc=w.location,h=loc.hostname;' +
     'var R=' + json + ';' +
@@ -193,6 +202,8 @@ export function buildRemoteChannelBootScript(rules: RemoteChannelRules = REMOTE_
     'if(OE!==undefined)w.EventSource=OE;' +
     'for(var i=0;i<restores.length;i++)restores[i]();' +
     'try{delete w[' + seat + ']}catch(e){w[' + seat + ']=undefined}};' +
+
+
     'w[' + seat + ']=seat' +
     // The boot watchdog rides the same IIFE and skip conditions: it needs
     // the non-loopback gate above (the desktop boots over loopback without
