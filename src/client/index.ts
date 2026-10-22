@@ -8,6 +8,7 @@
  * /client surface carries only what cordis loading needs plus types.
  */
 import { createElement } from 'react'
+import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConfigForm, ConfigForms } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -27,6 +28,7 @@ import { PairFailedNotice } from './PairFailedNotice.tsx'
 import { DiagPanel } from './DiagPanel.tsx'
 import { installDiagProbe, diagArmed, type RemoteDiagSnapshot } from './diag-probe.ts'
 import { installPageResumeRecovery } from './page-resume.ts'
+import { DirectoryPickNotice, trackPickPending, type PickNoticeTranslate } from './DirectoryPickNotice.tsx'
 import { RemoteSettingsCard, RemoteSettingsCardController, type RemoteSettings } from './RemoteSettingsCard.tsx'
 import { en, zh, type RemoteKey } from './locales.ts'
 import { PAIR_FAILED_MARKER, runPairBootFlow } from './deep-link.ts'
@@ -454,12 +456,49 @@ export function apply(ctx: ClientContext): void {
   syncChannel()
 
 
+  // Directory pick feedback: the host resolves its directory-picker backend
+  // once per boot from the host's own facts, so a loopback-bound host picks
+  // the native interaction - and the native surface is renderless. On a phone
+  // the desktop pops a chooser while the screen shows nothing, so a pending
+  // pick is indistinguishable from a broken button. The official call is
+  // wrapped (not replaced) and the notice says where the choice happens.
+  ctx.effect(() => {
+    const remote = ctx.get('remote') as {
+      directoryPicker?: { pick?: () => Promise<unknown> }
+    } | undefined
+    const picker = remote?.directoryPicker
+    if (picker === undefined || typeof picker.pick !== 'function') return () => {}
+    const original = picker.pick.bind(picker)
+    const tracker = trackPickPending(() => original())
+    picker.pick = (() => tracker.call()) as typeof picker.pick
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    const Notice = () => {
+      const [pending, setPending] = useState(tracker.pending())
+      useEffect(() => tracker.subscribe(() => { setPending(tracker.pending()) }), [])
+      return createElement(DirectoryPickNotice, { t: t as PickNoticeTranslate, pending })
+    }
+    root.render(createElement(Notice))
+    return () => {
+      picker.pick = original
+      root.unmount()
+      host.remove()
+    }
+  }, 'remote-web-ui: directory pick feedback')
   // Diagnostics overlay: opt-in only (see diag-probe.ts) and read-only, so a
   // normal paired phone never mounts it. It samples the mux leg alone - the
   // one the connection state machine waits on - which is the only way to tell
   // "never rewrote" from "rewrote but refused" from "accepted then torn down".
   let disposeDiag: (() => void) | undefined
-  if (diagArmed(window)) {
+  // The setting is the routine switch; the URL opt-in stays as the
+  // emergency entry that needs no settings round trip.
+  const diagnosticsOn = (): boolean => {
+    const snapshot = settingsForm.getSnapshot()
+    if (snapshot.status === 'ready' && snapshot.value?.diagnostics === true) return true
+    return diagArmed(window)
+  }
+  if (diagnosticsOn()) {
     // The connection handle is read further down in apply(); resolve it
     // lazily so the probe never depends on the read order.
     const connectionOf = (): ConnectionHandle | undefined => ctx.get('connection') as ConnectionHandle | undefined
