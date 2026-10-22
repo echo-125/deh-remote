@@ -3,8 +3,6 @@
 English | [中文](README.zh.md)
 
 <p align="center">
-  <img src="https://img.shields.io/npm/v/@echo-125/deh-remote?style=flat-square" alt="Version">
-  &nbsp;
   <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
@@ -17,6 +15,29 @@ English | [中文](README.zh.md)
 
 > Remote control of the DeepSeek Harness (DSH) Web GUI over the local area network, with both ends running the **exact same official interface**: pair an iPhone, Android smartphone, tablet, or another computer from the QR code next to settings. Phones receive an injected portrait touch layer while remote computers enjoy the complete desktop workbench, and access is guarded by expiring pairing tokens plus revocable device sessions. Reachability is LAN only: the host keeps its loopback bind, a runtime forwarder serves this machine's LAN address, and there is no public-access path.
 
+## Origin and scope
+
+This plugin began as one package inside the `dsh-web` monorepo and was split into a
+**standalone repository** in October 2026 (the shared build presets were inlined into
+`build/`), then taken from "the phone can open it" to "it works on a real iPhone".
+
+- **Origin**: copied out of the monorepo as its own repository, renamed to tell it apart
+  from the original (`@echo-125/deh-remote`).
+- **Scope**: **LAN-only** remote control — no tunnel, no relay, no public base URL, and
+  the master switch `enabled` is off by default. Pairing grants full control, but
+  `/api/update` and `/api/plugin-manager` stay on loopback and never ride the
+  `/remote` channel.
+- **The phone runs the same official Web GUI** — there is no second interface to drift.
+- **This round of changes** (see [PROJECT_HISTORY.md](PROJECT_HISTORY.md)): the tunnel
+  answers WebSocket Pongs on the phone's behalf, the browser APIs Safari only gained in
+  17.4 are polyfilled, the channel reconnects as soon as the page resumes, and the
+  host traces the channel so a phone can read the diagnosis without DevTools.
+
+> Known open issue: after "Add workspace" on the phone, **the folder must be chosen on the
+> computer**; the phone shows no feedback until then (the channel and the reply are
+> both fine — see PROJECT_HISTORY.md §4.1).
+
+---
 This package is an official external plugin for DeepSeek Harness (DSH), structured as a cordis bundle: the host half manages pairing tokens, device sessions, `/api/pair` routes, the gated `/remote` channel, the LAN forwarder and the matching host firewall rule; the browser half renders the remote access trigger, QR pairing modal, live device roster, settings card, and mobile portrait touch adaptation.
 
 ## What it does
@@ -151,7 +172,6 @@ On a multi-homed machine, repeat step 3 from a QR minted for a different LAN lit
 - **A legacy managed block is removed once, and one of its shapes still needs a hand**: a block written by this plugin up to 0.4.8 is stripped on the first activation of each process — atomically, only when it is actually there, with the file's permissions preserved and nothing written back — and `legacyBlockRemoved` reports it. The cleanup runs when the plugin activates, so an updated build takes it on the next `dsh web` start. The exception is a block that pinned `0.0.0.0`: DSH 0.2.1-rc.2 and later refuse that value before this plugin ever loads, so that host cannot reach the cleanup. Edit the profile's `cordis.patch.yml` once by hand: delete the block's two marker comments (the `# --- remote-web-ui lan-bind block ...` line and the `# --- end remote-web-ui lan-bind block ---` line) and the `- id: webserver` item between them — not the whole marked region, because other plugin rows may sit inside it.
 - **A refused worker registration falls back to the harness gate**: the reopen worker registers only where service workers exist. When an otherwise secure origin refuses it (deployment policy, a hardened browser profile), the address bar has already moved to `/` and a reopen needs a fresh QR; the plain-HTTP LAN path has no such gap, because its shell stays on `/pair-app`.
 - **The adaptation selectors track the official build**: the semantic-suffix strategy survives hash churn but not semantic renames; each official GUI update needs a visual QA pass (per the dsh-LAN reference, these suffixes have been stable across many official releases).
-- **The `/api` exposure banner has no producer**: the panel still carries the `posture.exposed` copy, but the posture probe was removed with the public-access path, so no frame ever fills it and the banner never renders.
 - **Dev HMR**: `dsh web --dev` polls every roster bundle by path, so rebuilding this package (its own `tsdown --watch`) hot-reloads the client bundle; the host half needs a restart.
 - **A mounted `@deepseek-ai/dsh-hmr` row blocks every settings save**: the official config editor serializes its writes through `hmr.runExclusive` whenever the `hmr` service is mounted, and on this cohort such a write is rejected as a nested transaction - the Host answers `HMR transactions cannot be nested` and each family settings card (and the official settings pages) reports a failed save. The row is user-added (no bundle ships it); a Desktop profile carries it to hot-reload a local plugin's host half. Remove the `- id: hmr` row from the profile patch to restore saves, and re-add it only while iterating on that plugin. Observed on the Desktop client 0.2.1-rc.2 (2026-09-30).
 

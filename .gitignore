@@ -5,3 +5,11 @@ dist/
 *.log
 tmp*/
 coverage/
+
+# Local diagnostics artefacts (the page screenshots and the browser
+# scratch directory the ad-hoc probes leave behind).
+.diag-*.png
+.pw-tmp/
+
+# GitHub CLI local state (the device id it writes on login).
+.local/

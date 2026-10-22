@@ -1,6 +1,6 @@
 # HANDOVER — @echo-125/deh-remote
 
-交接文档 · 最后更新 2026-10-21
+交接文档 · 最后更新 2026-10-22
 
 本文件是这条工作线的唯一事实源。新窗口接手前先读完本文，再读
 [AGENTS.md](AGENTS.md)（本仓规则）与
@@ -55,8 +55,16 @@ src/
   remote-api.ts             配对设备门控的 /remote 数据通道
   remote-methods.ts         通道常量 + LOCAL_ONLY_PREFIXES（拒绝面）
   remote-channel-*.ts       浏览器半区 /remote 重写规则 + 内联 boot 脚本
+  browser-polyfills.ts      Safari 17.4 才有的浏览器 API（AbortSignal.any / Promise.withResolvers）
+  ws-control.ts             WebSocket 控制帧：隧道代答 Pong
+  channel-log.ts            宿主侧通道追踪（写到 $DSH_HOME）
+  diag-page.ts              服务端渲染诊断页（/pair-diag）+ 落地页诊断横幅
   client/                   浏览器半区：面板、设置卡、设置一级入口、移动适配
-tests/                      44 个 spec
+  client/diag-boot.ts       解析期诊断探针（早于任何客户端代码）
+  client/diag-probe.ts      apply 期诊断探针 + 快照
+  client/DiagPanel.tsx      页面内诊断浮层
+  client/page-resume.ts     页面恢复即重连
+tests/                      51 个 spec
 build/                      内联的构建预设（来自原 shared/）
 ```
 
@@ -107,6 +115,27 @@ HTTP 状态码上报：
 
 排查问题先看设置卡片里的局域网状态区，不要去找日志。
 
+### 4.5 2026-10 这一轮：为真实手机可用性所做的改造
+
+起因是用户报告「手机扫码连上后侧边栏一直显示『重新连接中』」。完整来历与改造史见
+[PROJECT_HISTORY.md](PROJECT_HISTORY.md)，这里只留交接必需的结论：
+
+**四个真实缺陷（都已修）**：
+
+| 缺陷 | 机理 | 修在哪 |
+|---|---|---|
+| 隧道不代答 WebSocket Pong | 内环网关用 Ping/Pong 心跳；浏览器无法发 Pong，流被 `terminate()`，客户端无限重连 | `src/ws-control.ts` + `src/loopback-proxy.ts` |
+| 缺 `AbortSignal.any` / `Promise.withResolvers` | 两者都是 Safari 17.4 才有的 API；iOS 16.6 缺失时官方 SDK 抛 TypeError，generation 永不 ready（永远「重新连接中」），control 流失败（工作区列表空） | `src/browser-polyfills.ts`（boot 脚本解析期安装） |
+| 页面挂起后不重连 | 官方客户端不监听 `visibilitychange`，只能等退避（最长 10s） | `src/client/page-resume.ts` |
+| 通道日志互相覆盖 | 「读-改-写整个文件」并发丢记录，会掩盖真实症状 | `src/channel-log.ts`（改为追加写） |
+
+**诊断设施（长期保留，opt-in）**：宿主侧通道追踪（`src/channel-log.ts`）、服务端渲染诊断页
+`/pair-diag` 与落地页横幅（`src/diag-page.ts`）、解析期探针（`src/client/diag-boot.ts`）、
+客户端面板（`src/client/DiagPanel.tsx`）。手机无 DevTools、宿主又必须静默，所以诊断只能自建通道。
+
+**约束提醒**：诊断探针**绝不能改变被观测通道的行为**。`tests/loopback-forwarding.spec.ts`
+守住这一点（分片帧必须逐字节穿过隧道）；新增的回归测试要用**变异测试**确认有牙齿
+（禁用修复 → 测试必须失败）。
 ## 5. 门禁与当前状态
 
 本仓 `D:\workspace\agent\deh-remote`：
@@ -176,13 +205,24 @@ patch-only（卡片不暴露）：`devicesFile`、`profile`。
 `publicBaseUrl`、`trustedHosts`、`pairingSource`。
 
 ## 9. 已知问题 / 待办
+### 「添加工作区」在手机上没有即时反馈（暂不处理）
 
-1. **`posture.exposed` 文案是死的**：探针（`src/posture.ts`）随公网能力一起删了，
-   但 `locales.ts` 里 `posture.exposed` / `posture.exposedHint` 两个 key 还留着，
-   没有任何产生者。要么删掉这两个 key（zh/en/ru 三处同步），要么实现一个
-   LAN-only 的 `/api` 围栏自检。
+手机点「添加工作区」→ 电脑弹出「Select Workspace Directory」→ **需在电脑上完成选择**，
+手机端在此之前没有任何视觉反馈。
+
+已实测确认**不是通道问题**：请求到达宿主并弹出对话框；响应完整回到手机
+（实测 `{"ok":true,"value":"D:\workspace\agent\deh-remote"}`）；原生对话框等待期间请求保持打开
+（实测阻塞 8s+ 未超时）。推测是官方 GUI 未为「等待宿主侧人工交互」提供状态反馈。
+详见 [PROJECT_HISTORY.md](PROJECT_HISTORY.md) §4.1。
+
+
+1. **~~`posture.exposed` 文案是死的~~（已删）**：探针随公网能力一起删后，
+   这两个 key 与配套的 posture 死代码（`PostureFrame`、`PairStateFrame.posture`、
+   `RemoteEntry`/`RemotePanel` 的 posture 横幅与透传）已全部移除，README 双语的
+   「无生产者」说明条目也已删除。采取了「删掉」这一支，未实现 LAN-only 自检。
 2. **i18n ru 字典**：删 key 时记得同步 `packages/dsh-i18n/src/client/ru/remote-web-ui.ts`
-   （本仓已内联了自己的 ru 需求，但独立仓不再跑 `pnpm i18n:check`）。
+   （本仓已内联了自己的 ru 需求，但独立仓不再跑 `pnpm i18n:check`；本次死 key
+   删 zh/en 两处即可，本独立仓无 ru 字典）。
 3. **monorepo 尾巴**：`D:\workspace\agent\dsh-web\packages\echo-125-deh-remote`
    目录未删，里面还有未提交改动。删前先确认独立仓全绿（已确认）。
 4. **npm 未发布**：`@echo-125/deh-remote` 只在本地 link 安装，没发到 registry。

@@ -1,6 +1,6 @@
 {
   "name": "@echo-125/deh-remote",
-  "description": "LAN-only remote control for the dsh web GUI that shares one official interface: a QR beside the settings button pairs phones into the same Web GUI (a portrait-touch adaptation layer for phones) through one-time tokens and revocable device sessions, reachable on this machine's local network by a runtime forwarder while the host keeps its loopback bind",
+  "description": "LAN-only remote control for the DeepSeek Harness (DSH) web GUI: a QR beside the settings button pairs a phone into the same official Web GUI (with a portrait touch layer) through one-time tokens and revocable device sessions, reachable on this machine's local network by a runtime forwarder while the host keeps its loopback bind",
   "version": "0.5.0",
   "icon": "icon.svg",
   "type": "module",
@@ -12,7 +12,8 @@
     "build": "tsc -b && tsdown",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
-    "prepare": "tsdown --config tsdown.prepare.config.ts"
+    "prepare": "tsdown --config tsdown.prepare.config.ts",
+    "verify:docs": "node scripts/verify-docs.mjs"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -100,6 +101,21 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/zhu1090093659/dsh-web.git"
-  }
+    "url": "git+https://github.com/echo-125/deh-remote.git"
+  },
+  "bugs": {
+    "url": "https://github.com/echo-125/deh-remote/issues"
+  },
+  "homepage": "https://github.com/echo-125/deh-remote#readme",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "remote-control",
+    "lan",
+    "qrcode-pairing",
+    "cordis-plugin",
+    "web-gui",
+    "mobile",
+    "offline-first"
+  ]
 }

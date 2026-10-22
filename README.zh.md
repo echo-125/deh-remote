@@ -3,8 +3,6 @@
 [English](README.md) | 中文
 
 <p align="center">
-  <img src="https://img.shields.io/npm/v/@echo-125/deh-remote?style=flat-square" alt="Version">
-  &nbsp;
   <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
@@ -17,6 +15,23 @@
 
 > 在局域网内远程控制 DeepSeek Harness (DSH) Web GUI，两端运行的都与本机一样是**同一份官方界面**：在设置按钮旁的二维码配对 iPhone、Android 手机、平板或另一台电脑。手机获得注入的竖屏触控适配层，电脑获得完整桌面；准入基于限时配对令牌与可撤销设备会话。可达性仅限局域网：宿主保持回环绑定，由运行时转发器提供本机局域网地址，不存在任何公网访问路径。
 
+## 来历与定位
+
+本插件源自 `dsh-web` monorepo 中的一个包，2026-10 拆分为**独立仓**（`build/` 内联了
+原 monorepo 的共享构建预设），并从「手机能打开」改造到「真实 iPhone 上可用」。
+
+- **来历**：从 monorepo 整体复制为独立仓，重命名以区分原版（`@echo-125/deh-remote`）。
+- **定位**：只做**局域网**远程控制——不带隧道 / 中继 / 公网基址，主开关 `enabled` 默认关闭。
+  配对即完全控制凭据，但 `/api/update`、`/api/plugin-manager` 等控制面**留在回环**，不经 `/remote` 通道。
+- **手机端跑的是同一份官方 Web GUI**，不存在会漂移的第二套界面。
+- **本轮改造**（详见 [PROJECT_HISTORY.md](PROJECT_HISTORY.md)）：隧道代答 WebSocket Pong、
+  补齐 Safari 17.4 才有的 `AbortSignal.any` / `Promise.withResolvers`、页面恢复即重连、
+  宿主侧通道追踪与手机可见的诊断页。
+
+> 已知未处理问题：手机点「添加工作区」后，**需在电脑上完成文件夹选择**，手机端在此
+> 之前没有视觉反馈（通道与返回都正常，见 PROJECT_HISTORY.md §4.1）。
+
+---
 本仓库是 DeepSeek Harness（DSH）的外部插件包，为单一双面包：host 半区持有配对令牌、设备会话、`/api/pair` 路由族、门控 `/remote` 通道、局域网转发器与对应的主机防火墙规则；浏览器半区渲染侧栏底部的远程访问入口、带二维码的配对面板、实时设备名单、设置卡片，以及官方界面之上的竖屏触控适配层。
 
 ## 功能
@@ -160,7 +175,6 @@ pnpm run build
 - **旧版受管块会被清理一次，其中一种形态仍需手工介入**：本插件截至 0.4.8 写下的受管块会在每个进程首次激活时被剥离——原子替换、只在它确实存在时动手、保留文件权限且不回写任何内容——并由 `legacyBlockRemoved` 上报；清理在插件激活时运行，因此升级后的构建要到下一次 `dsh web` 启动才会执行。例外是固定 `0.0.0.0` 的块：DSH 0.2.1-rc.2 及以后的宿主在本插件加载之前就拒绝该值，那台宿主根本到不了清理这一步。手动编辑 profile 的 `cordis.patch.yml` 一次：删掉该块的两行标记注释（`# --- remote-web-ui lan-bind block ...` 与 `# --- end remote-web-ui lan-bind block ---`），以及两者之间那条 `- id: webserver` 条目——不要删掉整个标记区域，因为其他插件行可能就落在其中。
 - **worker 注册被拒绝时会退回 harness 栅栏**：重开 service worker 只在存在 service worker 的源上注册。当一个本已安全的源拒绝注册（部署策略、浏览器加固配置）时，地址栏此时已经改到 `/`，重开需要重新扫码；纯 HTTP 局域网路径没有这个缺口——它的应用壳停在 `/pair-app`。
 - **适配选择器跟随官方构建**：语义后缀策略可在 hash 变化中存活，但语义改名不行；每次官方 GUI 升级需要一轮视觉 QA（参考 dsh-LAN，这些后缀在多次官方发布中保持稳定）。
-- **`/api` 暴露横幅没有生产者**：面板仍保留 `posture.exposed` 文案，但姿态探测已随公网访问路径一并移除，因此没有任何帧会填充它，该横幅永远不会渲染。
 - **开发 HMR**：`dsh web --dev` 按路径轮询每个 roster bundle，重建本包（自身 `tsdown --watch`）即热重载客户端 bundle；host 半区需要重启。
 - **profile 里挂了 `@deepseek-ai/dsh-hmr` 行会让所有设置保存失败**：只要 `hmr` 服务存在，官方配置编辑器就会把写入包进 `hmr.runExclusive`，而在本 cohort 上这种写入会被判为嵌套事务——Host 返回 `HMR transactions cannot be nested`，本插件的各设置卡片（以及官方设置页）都显示保存失败。该行由用户自行添加（没有任何 bundle 自带），桌面版 profile 用它为本地插件的 host 半区做热重载。从 profile 补丁里删掉 `- id: hmr` 这一行即可恢复保存；只在需要热重载该插件时再加回。观察于 2026-09-30，桌面版客户端 0.2.1-rc.2。
 

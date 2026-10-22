@@ -61,12 +61,14 @@ npm 包名 `@echo-125/deh-remote`，是「局域网远程控制」插件：手�
 
 ## 待办（按优先级）
 
-1. `locales.ts` 里 `posture.exposed` / `posture.exposedHint` 两个 key 已是死文案
-   （探针删了但没有产生者）。要么删掉（zh/en 同步，本仓不再跑 i18n:check 但
-   字典键集要自洽），要么实现 LAN-only 的 `/api` 围栏自检。
-2. monorepo 尾巴：`D:\workspace\agent\dsh-web\packages\echo-125-deh-remote`
-   目录未删，还有未提交改动。确认本独立仓全绿后可以删。
-3. `@echo-125/deh-remote` 未发布到 npm，目前只 link 安装。
+1. ~~`locales.ts` 里 `posture.exposed` / `posture.exposedHint` 死文案~~（已删）：
+   采取了「删掉」这一支——zh/en 两处 key、`PostureFrame` 接口、
+   `PairStateFrame.posture` 字段、`RemoteEntry`/`RemotePanel` 的 posture 透传与横幅
+   一起移除（字典键集自洽），README 双语说明条目同步删除。
+2. ~~monorepo 尾巴~~（已删）：`D:\workspace\agent\dsh-web\packages\echo-125-deh-remote`
+   目录已删除，本独立仓是唯一副本。
+3. `@echo-125/deh-remote` **暂不发布到 npm**（当前还不完善），只以 GitHub 公开仓
+   的形式分发；用 `pnpm link` 或直接指向本目录安装。
 
 ## 我的第一个请求
 
