@@ -53,6 +53,17 @@ This package is an official external plugin for DeepSeek Harness (DSH), structur
 - **Remote control only**: the one-click family update is its own plugin (`dsh-update`, the same sidebar foot seat), so turning remote access off — or disabling this plugin — never removes the update trigger. The paired-device channel refuses the self-update installer (`/api/update`) and plugin install/manage (`/api/plugin-manager`): both belong to other packages, stay on the plain loopback path, and are not part of remote control.
 - **Desktop foot row**: on the wide sidebar the footer-action occupants share the official Settings trigger's line instead of stacking above it, so no single control owns a full-width row; any other foot block (the usage glance card, another plugin's) keeps a full row above them, and the 56px rail keeps the shell's stacked foot.
 
+## Workspaces on a phone
+
+A phone cannot operate a desktop file dialog, so the remote channel does not ask
+for one: "Add workspace" and "New session" both land in the **default
+workspace** - the one the host itself resolves on first use (the account
+Documents directory plus a fixed leaf). The desktop keeps its own chooser; only
+the remote origin is redirected.
+
+Two consequences worth knowing: a conversation started from the phone has a folder
+of its own (it does not land in "Ungrouped"), and picking a different folder is a
+desktop action - the host owns that choice, not the phone.
 ## Diagnosing a connection
 
 When a paired phone will not settle, the cause is usually on the wire rather than

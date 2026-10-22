@@ -29,6 +29,7 @@ import { DiagPanel } from './DiagPanel.tsx'
 import { installDiagProbe, diagArmed, type RemoteDiagSnapshot } from './diag-probe.ts'
 import { installPageResumeRecovery } from './page-resume.ts'
 import { DirectoryPickNotice, trackPickPending, type PickNoticeTranslate } from './DirectoryPickNotice.tsx'
+import { defaultWorkspaceOf, resolveDefaultWorkspace, type WorkspaceController, type WorkspaceProjection } from './DefaultWorkspace.ts'
 import { RemoteSettingsCard, RemoteSettingsCardController, type RemoteSettings } from './RemoteSettingsCard.tsx'
 import { en, zh, type RemoteKey } from './locales.ts'
 import { PAIR_FAILED_MARKER, runPairBootFlow } from './deep-link.ts'
@@ -182,7 +183,7 @@ export function bindSettingsForm(ctx: ClientContext): ConfigForm<RemoteSettings>
 const HEARTBEAT_INTERVAL_MS = 10_000
 
 /** Services required by this plugin. */
-export const inject = ['slots', 'locale', 'connection', 'configForms', 'remote']
+export const inject = ['slots', 'locale', 'connection', 'configForms', 'remote', 'uiWorkspace', 'workspaces']
 
 /**
  * Register the remote-control surface.
@@ -456,12 +457,21 @@ export function apply(ctx: ClientContext): void {
   syncChannel()
 
 
-  // Directory pick feedback: the host resolves its directory-picker backend
-  // once per boot from the host's own facts, so a loopback-bound host picks
-  // the native interaction - and the native surface is renderless. On a phone
-  // the desktop pops a chooser while the screen shows nothing, so a pending
-  // pick is indistinguishable from a broken button. The official call is
-  // wrapped (not replaced) and the notice says where the choice happens.
+  // Directory picking from a phone. The host resolves its directory-picker
+  // backend once per boot, from the host own bind and trust facts - it does
+  // not know a remote client is attached, so a loopback-bound host picks the
+  // native interaction, and the native surface is renderless: it calls the OS
+  // chooser on the desktop and waits. On a phone the desktop pops a dialog
+  // while the phone shows nothing, and the operator cannot pick anything from
+  // the phone at all.
+  //
+  // The default workspace has no such problem: the host resolves it itself
+  // (the account Documents directory plus a fixed leaf) and
+  // `workspace/initializeDefault` is a Remote method the phone can call
+  // directly. So a phone that asks for a directory gets the default workspace
+  // instead of a chooser it cannot operate - the same answer the desktop
+  // would have produced on first use. The desktop keeps its own chooser:
+  // this only redirects the phone.
   ctx.effect(() => {
     const remote = ctx.get('remote') as {
       directoryPicker?: { pick?: () => Promise<unknown> }
@@ -469,7 +479,19 @@ export function apply(ctx: ClientContext): void {
     const picker = remote?.directoryPicker
     if (picker === undefined || typeof picker.pick !== 'function') return () => {}
     const original = picker.pick.bind(picker)
-    const tracker = trackPickPending(() => original())
+    const workspaces = ctx.get('workspaces') as WorkspaceController | undefined
+    // A phone cannot operate a desktop file dialog, so the pick is answered
+    // with the default workspace the host resolves itself. The desktop keeps
+    // its own chooser: only the remote origin is redirected.
+    const redirected = async (): Promise<unknown> => {
+      const facts = pageOriginFacts(window)
+      if (!isLocalPage(facts.hostname, facts.protocol, facts.transportOwnsHost)) {
+        const fallback = await resolveDefaultWorkspace(workspaces)
+        if (fallback !== undefined) return fallback.path
+      }
+      return await original()
+    }
+    const tracker = trackPickPending(() => redirected())
     picker.pick = (() => tracker.call()) as typeof picker.pick
     const host = document.createElement('div')
     document.body.appendChild(host)
@@ -486,6 +508,47 @@ export function apply(ctx: ClientContext): void {
       host.remove()
     }
   }, 'remote-web-ui: directory pick feedback')
+  // New conversations land in the default workspace. Without it the official
+  // fallback picks the current (or most recently used) workspace, so a phone
+  // that has never opened one starts a conversation in "Ungrouped" - the
+  // session has no folder of its own. The default workspace is the one the
+  // host itself would create on first use, so this is where a conversation
+  // belongs until the operator picks another folder.
+  ctx.effect(() => {
+    const uiWorkspace = ctx.get('uiWorkspace') as {
+      startSession?: (workspaceId?: string, options?: unknown) => void
+    } | undefined
+    const startSession = uiWorkspace?.startSession
+    if (uiWorkspace === undefined || typeof startSession !== 'function') return () => {}
+    const workspaces = ctx.get('workspaces') as WorkspaceController | undefined
+    const original = startSession.bind(uiWorkspace)
+    uiWorkspace.startSession = (workspaceId?: string, options?: unknown): void => {
+      // An explicit workspace is the caller's decision and stays untouched.
+      if (workspaceId !== undefined) {
+        original(workspaceId, options)
+        return
+      }
+      const facts = pageOriginFacts(window)
+      if (isLocalPage(facts.hostname, facts.protocol, facts.transportOwnsHost)) {
+        original(undefined, options)
+        return
+      }
+      // The phone resolves the default workspace through the host, then
+      // starts the conversation there.
+      void resolveDefaultWorkspace(workspaces).then((fallback) => {
+        if (fallback !== undefined) {
+          original(fallback.workspaceId, options)
+          return
+        }
+        original(undefined, options)
+      }).catch(() => {
+        original(undefined, options)
+      })
+    }
+    return () => {
+      uiWorkspace.startSession = startSession
+    }
+  }, 'remote-web-ui: DefaultWorkspaceRouting')
   // Diagnostics overlay: opt-in only (see diag-probe.ts) and read-only, so a
   // normal paired phone never mounts it. It samples the mux leg alone - the
   // one the connection state machine waits on - which is the only way to tell

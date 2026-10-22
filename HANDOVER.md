@@ -65,6 +65,7 @@ src/
   client/DiagPanel.tsx      页面内诊断浮层
   client/page-resume.ts     页面恢复即重连
   client/DirectoryPickNotice.tsx  「在电脑上选择文件夹」的等待提示
+  client/DefaultWorkspace.ts  手机上的默认工作区解析与路由
   client/DiagPanel.tsx      页面内诊断浮层
 tests/                      51 个 spec
 build/                      内联的构建预设（来自原 shared/）
@@ -207,18 +208,18 @@ patch-only（卡片不暴露）：`devicesFile`、`profile`。
 `publicBaseUrl`、`trustedHosts`、`pairingSource`。
 
 ## 9. 已知问题 / 待办
-### 「添加工作区」的手机端反馈（已修）
+### 手机上的「添加工作区」/「新建对话」落在默认工作区（已改机制）
 
-手机点「添加工作区」→ 电脑弹原生对话框 → **需在电脑上完成选择**，手机端此前没有
-任何视觉反馈。
+手机点「添加工作区」原本会弹**电脑端**的原生选择器（手机上无反馈），「新建对话」会
+落进「未分组」。
 
 机理：宿主在启动时采样一次目录选择后端（`dsh-host-directory-picker-auto`），只依据
-**宿主自己的**绑定与信任事实 —— 它不知道有远程客户端连着；`native` 交互的客户端表面
-是 renderless 的，等待期间不渲染任何东西。
+**宿主自己的**绑定与信任事实 —— 它不知道有远程客户端连着；`native` 交互的客户端表面是
+renderless 的，等待期间不渲染任何东西。
 
-修法：`src/client/DiagPanel` 同级的 `src/client/DirectoryPickNotice.tsx` 包裹
-`ctx.remote.directoryPicker.pick`，在调用飞行期间提示「请在电脑上选择文件夹」。
-官方调用本身不动。详见 [PROJECT_HISTORY.md](PROJECT_HISTORY.md) §4.1。
+现在的机制：手机改为走**默认工作区**（宿主自己解析 Documents 目录 + 固定叶子，
+`workspace/initializeDefault` 是手机可直接调用的 Remote 方法）；桌面端行为完全不变。
+实现见 `src/client/DefaultWorkspace.ts`，细节见 [PROJECT_HISTORY.md](PROJECT_HISTORY.md) §4.1。
 ## 10. 联调时怎么验证
 
 ```powershell
