@@ -35,6 +35,12 @@ export interface RemoteSettings {
    * (a LAN literal of this machine) and the matching host firewall rule.
    */
   lanBind?: boolean
+  /**
+   * Channel diagnostics: the host-side trace, the server-rendered diagnosis
+   * page and the browser probes. Off by default - they exist to explain a
+   * failing connection, and a working one needs none of them.
+   */
+  diagnostics?: boolean
 }
 
 /** What the remote-control card renders. */
@@ -55,6 +61,8 @@ export interface RemoteSettingsCardState extends CardShell {
   requirePairingForLan: CardFieldState
   /** LAN bind toggle. */
   lanBind: CardFieldState
+  /** Channel diagnostics toggle. */
+  diagnostics: CardFieldState
 }
 
 /** The registration-side face the card's slot entry injects. */
@@ -81,6 +89,7 @@ export class RemoteSettingsCardController {
       textField('cookieName'),
       booleanField('requirePairingForLan'),
       booleanField('lanBind'),
+      booleanField('diagnostics'),
     ])
     this.store = this.form.bind(() => this.projection())
   }
@@ -96,6 +105,7 @@ export class RemoteSettingsCardController {
       cookieName: this.form.field('cookieName'),
       requirePairingForLan: this.form.field('requirePairingForLan'),
       lanBind: this.form.field('lanBind'),
+      diagnostics: this.form.field('diagnostics'),
     }
   }
 
@@ -242,6 +252,18 @@ export function RemoteSettingsCard(props: RemoteSettingsCardProps) {
         {...state.lanBind}
         onEdit={(text) => { props.edit('lanBind', text) }}
         onReset={() => { props.resetField('lanBind') }}
+      />
+      <BooleanField
+        id="settings-remote-diagnostics"
+        label={t('settings.diagnostics')}
+        hint={t('settings.diagnosticsHint')}
+        inheritLabel={t('settings.inherit')}
+        onLabel={t('settings.on')}
+        offLabel={t('settings.off')}
+        {...fieldProps}
+        {...state.diagnostics}
+        onEdit={(text) => { props.edit('diagnostics', text) }}
+        onReset={() => { props.resetField('diagnostics') }}
       />
     </PluginSettingsCard>
   )

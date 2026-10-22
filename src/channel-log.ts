@@ -45,6 +45,32 @@ export interface ChannelLegRecord {
 /** Maximum records kept in the trace file. */
 export const MAX_CHANNEL_LOG_RECORDS = 200
 
+/**
+ * Whether the trace is armed.
+ *
+ * The tunnel records from deep inside the proxy, so the gate cannot be a
+ * parameter on every call: an unarmed instance simply writes nothing.
+ */
+let armed = false
+
+/**
+ * Arm or disarm the trace.
+ *
+ * @param value - whether records should be written.
+ */
+export function setChannelLogArmed(value: boolean): void {
+  armed = value
+}
+
+/**
+ * Whether the trace is armed.
+ *
+ * @returns true when records are written.
+ */
+export function channelLogArmed(): boolean {
+  return armed
+}
+
 /** The file name under the DSH home. */
 export const CHANNEL_LOG_FILE = 'remote-channel-log.json'
 
@@ -54,6 +80,8 @@ export interface ChannelLogOptions {
   home?: string
   /** Clock seam (tests). */
   now?: () => number
+  /** Write regardless of the arm switch (tests and the explicit opt-in). */
+  armed?: boolean
 }
 
 /**
@@ -63,6 +91,9 @@ export interface ChannelLogOptions {
  * @returns the absolute file path, or undefined when the write failed.
  */
 export function appendChannelLog(record: ChannelLegRecord, options: ChannelLogOptions = {}): string | undefined {
+  // An unarmed instance writes nothing: the trace is diagnostic, and a paired
+  // phone must not pay for I/O it never asked for.
+  if (!armed && options.armed !== true) return undefined
   const home = options.home ?? dshHome()
   const file = join(home, CHANNEL_LOG_FILE)
   try {

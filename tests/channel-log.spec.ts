@@ -9,7 +9,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { appendChannelLog, CHANNEL_LOG_FILE, MAX_CHANNEL_LOG_RECORDS, readChannelLog } from '../src/channel-log.ts'
+import { appendChannelLog, CHANNEL_LOG_FILE, MAX_CHANNEL_LOG_RECORDS, readChannelLog, setChannelLogArmed } from '../src/channel-log.ts'
 import { injectDiagBanner, renderDiagPage } from '../src/diag-page.ts'
 
 function home(): string {
@@ -19,7 +19,7 @@ function home(): string {
 describe('channel log', () => {
   it('records a leg and reads it back', () => {
     const h = home()
-    appendChannelLog({ at: 1, path: '/remote/api/remote.mux', credentialed: true, outcome: 'accepted', status: 101, innerStatus: 101, heldMs: 4200 }, { home: h })
+    appendChannelLog({ at: 1, path: '/remote/api/remote.mux', credentialed: true, outcome: 'accepted', status: 101, innerStatus: 101, heldMs: 4200 }, { home: h, armed: true })
     const records = readChannelLog({ home: h })
     expect(records).toHaveLength(1)
     expect(records[0]?.innerStatus).toBe(101)
@@ -29,7 +29,7 @@ describe('channel log', () => {
   it('keeps the trace bounded', () => {
     const h = home()
     for (let i = 0; i < MAX_CHANNEL_LOG_RECORDS + 25; i += 1) {
-      appendChannelLog({ at: i, path: '/x', credentialed: false, outcome: 'accepted', status: 101 }, { home: h })
+      appendChannelLog({ at: i, path: '/x', credentialed: false, outcome: 'accepted', status: 101 }, { home: h, armed: true })
     }
     const records = readChannelLog({ home: h })
     expect(records.length).toBe(MAX_CHANNEL_LOG_RECORDS)
@@ -39,7 +39,7 @@ describe('channel log', () => {
 
   it('never stores a device credential in the record', () => {
     const h = home()
-    appendChannelLog({ at: 1, path: '/remote/api/remote.mux', credentialed: true, outcome: 'accepted', status: 101 }, { home: h })
+    appendChannelLog({ at: 1, path: '/remote/api/remote.mux', credentialed: true, outcome: 'accepted', status: 101 }, { home: h, armed: true })
     const raw = readFileSync(join(h, CHANNEL_LOG_FILE), 'utf8')
     expect(raw).not.toMatch(/dsh_pair/)
     expect(raw).not.toMatch(/device=/)
@@ -54,7 +54,7 @@ describe('channel log', () => {
 
   it('does not throw when the home directory cannot be written', () => {
     const h = join(home(), 'nested', 'deeper')
-    appendChannelLog({ at: 1, path: '/x', credentialed: false, outcome: 'accepted', status: 101 }, { home: h })
+    appendChannelLog({ at: 1, path: '/x', credentialed: false, outcome: 'accepted', status: 101 }, { home: h, armed: true })
     expect(readChannelLog({ home: h }).length).toBe(1)
   })
 })

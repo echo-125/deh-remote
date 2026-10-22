@@ -28,6 +28,7 @@ import { isLoopbackAddress, isProxiedRequest } from './loopback.ts'
 import { isLoopbackClient, isLoopbackUpstream, readCookie } from './gate.ts'
 import { readJsonBody, writeJson } from './http.ts'
 import { injectDiagBanner, renderDiagPage } from './diag-page.ts'
+import { setChannelLogArmed } from './channel-log.ts'
 import { readChannelLog } from './channel-log.ts'
 import { createPairGrantStore, type PairGrantStore } from './pair-grant.ts'
 import { REMOTE_HOST_GRANT_GLOBAL } from './remote-channel-rules.ts'
@@ -598,6 +599,13 @@ export function lanSourceCandidates(lanBases: readonly string[], currentOrigin: 
 export interface PairRoutesDeps {
   /** The pairing service. */
   service: PairingService
+  /**
+   * Whether the channel diagnostics are armed. When they are, the diagnosis
+   * page and the landing banner are served without the URL opt-in; the flag
+   * never widens access - the page still answers a paired device or a
+   * loopback caller only.
+   */
+  diagnostics?: boolean | (() => boolean)
   /** Current desktop gate policy, re-read for every status response. */
   requirePairingForLan?: boolean | (() => boolean)
   /**
@@ -1097,7 +1105,18 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     // and it has no DevTools. The trace holds no credential.
     const diagFlag = diagFlagOf(url)
     const shell = patchAppShell(html, id, lanHop(req, id), diagFlag)
-    res.end(diagFlag === undefined ? shell : injectDiagBanner(shell, readChannelLog()))
+    // The banner rides the URL opt-in, and the setting arms it for every
+    // landing: a technician who turned the diagnostics on should not have to
+    // remember a query parameter on the phone.
+    const armed = typeof deps.diagnostics === 'function' ? deps.diagnostics() : deps.diagnostics === true
+    if (diagFlag !== undefined) {
+      // A landing that asked for the diagnosis arms the trace for the
+      // process: the technician gets the whole picture without a settings
+      // round trip, and the URL stays the emergency entry the setting
+      // replaces for routine use.
+      setChannelLogArmed(true)
+    }
+    res.end(diagFlag === undefined && !armed ? shell : injectDiagBanner(shell, readChannelLog()))
   }
 
   /**
@@ -1155,6 +1174,7 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
    */
   const handleDiagPage = (req: IncomingMessage, res: ServerResponse): void => {
     if (!requireMethod(req, res, 'GET')) return
+    const armed = typeof deps.diagnostics === 'function' ? deps.diagnostics() : deps.diagnostics === true
     const cookieDevice = readCookie(req.headers.cookie, service.config.cookieName)
     const paired = cookieDevice !== undefined && service.touchDevice(cookieDevice)
     // A desktop browser that opens the LAN address is not a loopback client

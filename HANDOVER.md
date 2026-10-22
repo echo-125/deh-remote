@@ -64,6 +64,8 @@ src/
   client/diag-probe.ts      apply 期诊断探针 + 快照
   client/DiagPanel.tsx      页面内诊断浮层
   client/page-resume.ts     页面恢复即重连
+  client/DirectoryPickNotice.tsx  「在电脑上选择文件夹」的等待提示
+  client/DiagPanel.tsx      页面内诊断浮层
 tests/                      51 个 spec
 build/                      内联的构建预设（来自原 shared/）
 ```
@@ -205,29 +207,18 @@ patch-only（卡片不暴露）：`devicesFile`、`profile`。
 `publicBaseUrl`、`trustedHosts`、`pairingSource`。
 
 ## 9. 已知问题 / 待办
-### 「添加工作区」在手机上没有即时反馈（暂不处理）
+### 「添加工作区」的手机端反馈（已修）
 
-手机点「添加工作区」→ 电脑弹出「Select Workspace Directory」→ **需在电脑上完成选择**，
-手机端在此之前没有任何视觉反馈。
+手机点「添加工作区」→ 电脑弹原生对话框 → **需在电脑上完成选择**，手机端此前没有
+任何视觉反馈。
 
-已实测确认**不是通道问题**：请求到达宿主并弹出对话框；响应完整回到手机
-（实测 `{"ok":true,"value":"D:\workspace\agent\deh-remote"}`）；原生对话框等待期间请求保持打开
-（实测阻塞 8s+ 未超时）。推测是官方 GUI 未为「等待宿主侧人工交互」提供状态反馈。
-详见 [PROJECT_HISTORY.md](PROJECT_HISTORY.md) §4.1。
+机理：宿主在启动时采样一次目录选择后端（`dsh-host-directory-picker-auto`），只依据
+**宿主自己的**绑定与信任事实 —— 它不知道有远程客户端连着；`native` 交互的客户端表面
+是 renderless 的，等待期间不渲染任何东西。
 
-
-1. **~~`posture.exposed` 文案是死的~~（已删）**：探针随公网能力一起删后，
-   这两个 key 与配套的 posture 死代码（`PostureFrame`、`PairStateFrame.posture`、
-   `RemoteEntry`/`RemotePanel` 的 posture 横幅与透传）已全部移除，README 双语的
-   「无生产者」说明条目也已删除。采取了「删掉」这一支，未实现 LAN-only 自检。
-2. **i18n ru 字典**：删 key 时记得同步 `packages/dsh-i18n/src/client/ru/remote-web-ui.ts`
-   （本仓已内联了自己的 ru 需求，但独立仓不再跑 `pnpm i18n:check`；本次死 key
-   删 zh/en 两处即可，本独立仓无 ru 字典）。
-3. **monorepo 尾巴**：`D:\workspace\agent\dsh-web\packages\echo-125-deh-remote`
-   目录未删，里面还有未提交改动。删前先确认独立仓全绿（已确认）。
-4. **npm 未发布**：`@echo-125/deh-remote` 只在本地 link 安装，没发到 registry。
-   要发布先想清楚 scope 归属（echo-125 的 GitHub 账号）。
-
+修法：`src/client/DiagPanel` 同级的 `src/client/DirectoryPickNotice.tsx` 包裹
+`ctx.remote.directoryPicker.pick`，在调用飞行期间提示「请在电脑上选择文件夹」。
+官方调用本身不动。详见 [PROJECT_HISTORY.md](PROJECT_HISTORY.md) §4.1。
 ## 10. 联调时怎么验证
 
 ```powershell

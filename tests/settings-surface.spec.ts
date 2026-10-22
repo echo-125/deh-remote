@@ -74,6 +74,7 @@ describe('remote-web-ui settings surface (issue #1717)', () => {
     expect(configFields().sort()).toEqual([
       'cookieName',
       'devicesFile',
+      'diagnostics',
       'enabled',
       'idleExpireMs',
       'lanBind',

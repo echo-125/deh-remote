@@ -44,6 +44,7 @@ import { runDetached } from './detached-work.ts'
 import { REMOTE_CHANNEL_BOOT_SCRIPT } from './remote-channel-boot.ts'
 import { REMOTE_CHANNEL_RULES } from './remote-channel-rules.ts'
 import { buildDiagBootScript } from './client/diag-boot.ts'
+import { setChannelLogArmed } from './channel-log.ts'
 import { UUID_POLYFILL_SCRIPT } from './uuid-polyfill.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -202,6 +203,12 @@ export const Config = z.object({
   lanBind: z.boolean().default(false).volatile(),
   profile: z.string().pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
   enabled: z.boolean().default(false).volatile(),
+  /**
+   * Whether the channel diagnostics are armed: the host-side trace, the
+   * server-rendered diagnosis page and the browser probes. They are inert
+   * until this is on, and a paired phone pays nothing for them.
+   */
+  diagnostics: z.boolean().default(false).volatile(),
 })
 
 /** Presence sweep cadence (a stale device flips to disconnected within two sweeps). */
@@ -217,6 +224,8 @@ type ResolvedConfig = Required<Omit<Config, 'devicesFile' | 'lanBind' | 'profile
   /** The LAN access toggle; the schema default keeps it a plain boolean. */
   lanBind: boolean
   profile: string
+  /** Whether the channel diagnostics are armed. */
+  diagnostics: boolean
 }
 
 /**
@@ -243,6 +252,7 @@ export interface ResolvedConfigFields {
   lanBind?: ConfigField<boolean>
   profile?: ConfigField<string>
   enabled?: ConfigField<boolean>
+  diagnostics?: ConfigField<boolean>
 }
 
 /** Read one resolved config field, following the live reference the schema produces. */
@@ -304,6 +314,7 @@ const DEFAULTS: ResolvedConfig = {
   lanBind: false,
   profile: resolveManagedProfile(undefined, undefined, process.env.DSH_PROFILE),
   enabled: false,
+  diagnostics: false,
 }
 
 /**
@@ -475,6 +486,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     lanBind: readConfigField(config?.lanBind, DEFAULTS.lanBind),
     profile: resolveManagedProfile(readOptionalConfigField(config?.profile), launchedProfileName(ctx), process.env.DSH_PROFILE),
     enabled: readConfigField(config?.enabled, DEFAULTS.enabled),
+    diagnostics: readConfigField(config?.diagnostics, DEFAULTS.diagnostics),
   })
   const service = new PairingService(pairingConfigOf(resolve()))
 
@@ -591,6 +603,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     ...makeRoutes({
       service,
       requirePairingForLan: () => resolve().requirePairingForLan,
+      diagnostics: () => resolve().diagnostics,
       lanBindStatus,
       indexDocument: fetchAppShell,
     }),
@@ -602,6 +615,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     // credential to everything it forwards (issue #1665).
     ...makeRemoteApiRoutes({
       service,
+      diagnostics: () => resolve().diagnostics,
       port: () => ctx.webServer.port,
       auth: innerAuth,
     }),
@@ -781,6 +795,10 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     const value = resolve()
     service.config = pairingConfigOf(value)
     scheduleLanBindWork()
+    // The channel trace follows the setting: an unarmed instance writes no
+    // records at all, so a paired phone pays nothing for diagnostics it never
+    // asked for.
+    setChannelLogArmed(value.diagnostics)
     const enabled = value.enabled
     if (!enabled) {
       service.stop()
@@ -843,6 +861,9 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   ctx.effect(() => ctx.on('webserver/index-inject', (table) => {
     const value = resolve()
     if (!value.enabled || !value.requirePairingForLan) return
+    // The probe script decides at runtime whether to arm itself (the landing
+    // remembers the opt-in), so injecting it always costs a pair of bytes and
+    // keeps the URL escape hatch working next to the setting.
     table.push({ kind: 'script', placement: 'head', text: buildDiagBootScript(REMOTE_CHANNEL_RULES) })
   }), 'remote-web-ui: remote channel diagnostics probe')
 

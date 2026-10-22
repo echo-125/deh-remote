@@ -75,6 +75,11 @@ export interface RemoteApiDeps {
   /** The pairing service (device gate + cookie name). */
   service: PairingService
   /**
+   * Whether the channel trace is armed. An unarmed instance writes nothing,
+   * so a paired phone pays no I/O for diagnostics it never asked for.
+   */
+  diagnostics?: boolean | (() => boolean)
+  /**
    * Local webServer port the loopback proxy connects to, read per request:
    * `undefined` before the listener binds (a recompose pass can run this
    * apply ahead of the bind), in which case the handlers refuse with 503
@@ -248,7 +253,11 @@ export function makeRemoteApiUpgradeRoutes(deps: RemoteApiDeps): WebUpgradeRoute
     // look at the browser half with.
     const legPath = (req.url ?? '').split('?')[0] ?? ''
     let innerStatus: number | undefined
+    const armed = typeof deps.diagnostics === 'function' ? deps.diagnostics() : deps.diagnostics === true
     const trace = (outcome: string, status: number, heldMs?: number, code?: number): void => {
+      // An unarmed instance writes nothing: the trace is diagnostic, and a
+      // paired phone must not pay for I/O it never asked for.
+      if (!armed) return
       appendChannelLog({
         at: Date.now(),
         path: legPath,

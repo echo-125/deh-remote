@@ -33,7 +33,7 @@ import type { Duplex } from 'node:stream'
 import { writeJson } from './http.ts'
 import type { InnerAuth } from './inner-auth.ts'
 import { WS_OP_CLOSE, WS_OP_PING, buildMaskedPong, parseWsFrameHeader, unmaskWsPayload } from './ws-control.ts'
-import { appendChannelLog } from './channel-log.ts'
+import { appendChannelLog, channelLogArmed } from './channel-log.ts'
 
 /** WebSocket handshake headers forwarded to the loopback upstream. */
 const WS_FORWARD_HEADERS = [
