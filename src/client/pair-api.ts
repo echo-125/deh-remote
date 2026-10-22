@@ -57,12 +57,6 @@ export async function readPairGatePolicy(): Promise<PairGatePolicy> {
 /** accept() refusal codes. */
 export type AcceptFailure = { ok: false; code: 'invalid' | 'forbidden' }
 
-/** One /api posture frame (host half probe). */
-export interface PostureFrame {
-  checkedAt: number
-  hosts: { host: string; exposed: boolean }[]
-}
-
 /** One /api/pair/events frame. */
 export interface PairStateFrame {
   type: 'state'
@@ -74,8 +68,6 @@ export interface PairStateFrame {
   onlineCount: number
   /** Per-device roster (loopback events only). */
   devices?: DeviceFrame[]
-  /** Latest /api fence posture probe, once a round has completed. */
-  posture?: PostureFrame
 }
 
 /** One authorized-device row from the loopback status stream. */

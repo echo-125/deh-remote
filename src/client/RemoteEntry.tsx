@@ -34,7 +34,6 @@ function mergeFrame(state: PanelState, frame: PairStateFrame): PanelState {
     deviceCount: frame.deviceCount,
     onlineCount: frame.onlineCount,
     devices: frame.devices ?? [],
-    ...(frame.posture !== undefined ? { posture: frame.posture } : {}),
   }
 }
 
